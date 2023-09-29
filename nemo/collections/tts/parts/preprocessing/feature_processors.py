@@ -196,7 +196,7 @@ class MeanVarianceSpeakerNormalization(FeatureProcessor):
     def process(self, training_example: dict) -> None:
         feature = training_example[self.field]
 
-        speaker = training_example[self.speaker_field]
+        speaker = training_example.get(self.speaker_field, None)
         if speaker in self.stats_dict:
             stats = self.stats_dict[speaker]
         elif self.fallback_to_default:

@@ -241,11 +241,16 @@ class FFTransformerDecoder(NeuralModule):
 
     @typecheck()
     def forward(self, input, seq_lens, conditioning=None):
-        return self._forward(input, mask_from_lens(seq_lens).unsqueeze(2), conditioning)
+        return self._forward(input, mask_from_lens(seq_lens), conditioning)
 
     def _forward(self, inp, mask, conditioning):
         pos_seq = torch.arange(inp.size(1), device=inp.device).to(inp.dtype)
-        pos_emb = self.pos_emb(pos_seq) * mask
+        mask = mask.unsqueeze(2)
+        if mask is not None:
+            pos_emb = self.pos_emb(pos_seq) * mask
+        else:
+            pos_emb = self.pos_emb(pos_seq)
+            mask = torch.ones((pos_emb.shape), dtype=torch.bool)
         inp += pos_emb
         inp = self.cond_input(inp, conditioning)
         out = self.drop(inp)
@@ -301,8 +306,60 @@ class FFTransformerEncoder(FFTransformerDecoder):
 
     def forward(self, input, conditioning=0):
 
-        return self._forward(self.word_emb(input), (input != self.padding_idx).unsqueeze(2), conditioning)  # (B, L, 1)
+        return self._forward(self.word_emb(input), (input != self.padding_idx), conditioning)  # (B, L, 1)
 
+
+class FFTransformerAudioEncoder(FFTransformerDecoder):
+    def __init__(
+        self,
+        n_layer,
+        n_head,
+        d_model,
+        d_head,
+        d_inner,
+        kernel_size,
+        dropout,
+        dropatt,
+        dropemb=0.0,
+        pre_lnorm=False,
+        n_embed=None,
+        d_embed=None,
+        padding_idx=0,
+        condition_types=[],
+    ):
+        super(FFTransformerAudioEncoder, self).__init__(
+            n_layer,
+            n_head,
+            d_model,
+            d_head,
+            d_inner,
+            kernel_size,
+            dropout,
+            dropatt,
+            dropemb,
+            pre_lnorm,
+            condition_types,
+        )
+
+        self.word_emb = nn.Linear(n_embed, d_embed or d_model)
+
+    @property
+    def input_types(self):
+        return {
+            "input": NeuralType(('B', 'T', 'D'), EncodedRepresentation()),
+            "seq_lens": NeuralType(('B', 'T', 'D', EncodedRepresentation)),
+            "conditioning": NeuralType(('B', 'T', 'D'), EncodedRepresentation(), optional=True),
+        }
+
+    def forward(self, input, seq_lens=None, conditioning=0):
+        if seq_lens is not None:
+
+            we = self.word_emb(input)
+            mask = mask_from_lens(seq_lens)
+
+            return self._forward(we, mask, conditioning)  # (B, L, 1)
+        else:
+            return self._forward(self.word_emb(input), None, conditioning)
 
 class FFTransformer(nn.Module):
     def __init__(

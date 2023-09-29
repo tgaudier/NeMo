@@ -26,6 +26,9 @@ from nemo.collections.asr.modules import AudioToMelSpectrogramPreprocessor
 from nemo.collections.tts.parts.utils.tts_dataset_utils import get_audio_filepaths, stack_tensors
 from nemo.utils.decorators import experimental
 
+from transformers import AutoModel
+
+import os
 
 @experimental
 class Featurizer(ABC):
@@ -134,6 +137,75 @@ def _collate_feature(
     stacked_features = stack_tensors(feature_tensors, max_lens=[max_len])
     feature_dict[feature_name] = stacked_features
 
+
+
+
+class HuggingFaceFeaturizer:
+    def __init__ (
+            self,
+            feature_name: str = "wavlm_large",
+            model_path: str = "microsoft/wavlm-large"
+    ):
+        self.feature_name = feature_name
+        self.model_path = model_path
+        self.model = AutoModel.from_pretrained(model_path)
+
+    def compute_huggingface (self,
+                 manifest_entry,
+                 audio_dir,
+    ):
+        audio_filepath, _ = get_audio_filepaths(manifest_entry=manifest_entry, audio_dir=audio_dir)
+        audio, _ = librosa.load(path=audio_filepath)
+        audio_tensor = torch.tensor(audio[np.newaxis, :], dtype=torch.float32)
+        with torch.no_grad():
+            output = self.model(audio_tensor)["last_hidden_state"]
+            output_len = torch.tensor(output.shape[1])
+        return output, output_len
+
+    def direct_load(self, manifest_entry: Dict[str, Any], audio_dir: Path, feature_dir: Path):
+        feat_file = _get_feature_filepath(
+            manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir, feature_name=self.feature_name
+        )
+
+        if not os.path.isfile(feat_file):
+            self.save(manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir)
+        
+        return torch.load(feat_file)
+
+    def save(self, manifest_entry: Dict[str, Any], audio_dir: Path, feature_dir: Path) -> None:
+        spec_tensor = self.compute_huggingface(manifest_entry=manifest_entry, audio_dir=audio_dir)
+        _save_pt_feature(
+            feature_name=self.feature_name,
+            feature_tensor=spec_tensor,
+            manifest_entry=manifest_entry,
+            audio_dir=audio_dir,
+            feature_dir=feature_dir,
+        )
+
+    def load(self, manifest_entry: Dict[str, Any], audio_dir: Path, feature_dir: Path) -> Dict[str, Tensor]:
+        feature_dict = {}
+
+        feat_file = _get_feature_filepath(
+            manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir, feature_name=self.feature_name
+        )
+
+        if not os.path.isfile(feat_file):
+            self.save(manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir)
+
+        _load_pt_feature(
+            feature_dict=feature_dict,
+            feature_name=self.feature_name,
+            manifest_entry=manifest_entry,
+            audio_dir=audio_dir,
+            feature_dir=feature_dir,
+        )
+        return feature_dict
+
+    def collate_fn(self, train_batch: List[Dict[str, Tensor]]) -> Dict[str, Tensor]:
+        feature_dict = {}
+        _collate_feature(feature_dict=feature_dict, feature_name=self.feature_name, train_batch=train_batch)
+        return feature_dict
+        
 
 class MelSpectrogramFeaturizer:
     def __init__(
@@ -265,6 +337,17 @@ class EnergyFeaturizer:
 
     def load(self, manifest_entry: Dict[str, Any], audio_dir: Path, feature_dir: Path) -> Dict[str, Tensor]:
         feature_dict = {}
+
+
+        feat_file = _get_feature_filepath(
+            manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir, feature_name=self.feature_name
+        )
+
+        if not os.path.isfile(feat_file):
+            self.save(manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir)
+
+
+        
         _load_pt_feature(
             feature_dict=feature_dict,
             feature_name=self.feature_name,
@@ -285,7 +368,7 @@ class PitchFeaturizer:
         self,
         pitch_name: Optional[str] = "pitch",
         voiced_mask_name: Optional[str] = "voiced_mask",
-        voiced_prob_name: Optional[str] = None,
+        voiced_prob_name: Optional[str] = "voiced_prob",
         sample_rate: int = 22050,
         win_length: int = 1024,
         hop_length: int = 256,
@@ -360,6 +443,29 @@ class PitchFeaturizer:
 
     def load(self, manifest_entry: Dict[str, Any], audio_dir: Path, feature_dir: Path) -> Dict[str, Tensor]:
         feature_dict = {}
+
+        feat_file_pitch = _get_feature_filepath(
+            manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir, feature_name=self.pitch_name
+        )
+
+        if not os.path.isfile(feat_file_pitch):
+            self.save(manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir)
+
+        feat_file_voiced_mask = _get_feature_filepath(
+            manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir, feature_name=self.voiced_mask_name
+        )
+
+        if not os.path.isfile(feat_file_voiced_mask):
+            self.save(manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir)
+
+
+        feat_file_voiced_prob = _get_feature_filepath(
+            manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir, feature_name=self.voiced_prob_name
+        )
+
+        if not os.path.isfile(feat_file_voiced_prob):
+            self.save(manifest_entry=manifest_entry, audio_dir=audio_dir, feature_dir=feature_dir)
+
         _load_pt_feature(
             feature_dict=feature_dict,
             feature_name=self.pitch_name,
