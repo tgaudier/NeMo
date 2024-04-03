@@ -23,6 +23,7 @@ from nemo.collections.tts.models.radtts import RadTTSModel
 from nemo.collections.tts.models.spectrogram_enhancer import SpectrogramEnhancerModel
 from nemo.collections.tts.models.ssl_tts import SSLDisentangler
 from nemo.collections.tts.models.tacotron2 import Tacotron2Model
+from nemo.collections.tts.models.tacotron2_ppg import Tacotron2PPGModel
 from nemo.collections.tts.models.two_stages import GriffinLimModel, MelPsuedoInverseModel, TwoStagesModel
 from nemo.collections.tts.models.univnet import UnivNetModel
 from nemo.collections.tts.models.vits import VitsModel
@@ -41,6 +42,7 @@ __all__ = [
     "MixerTTSModel",
     "RadTTSModel",
     "Tacotron2Model",
+    "Tacotron2PPGModel",
     "TwoStagesModel",
     "UnivNetModel",
     "VitsModel",
